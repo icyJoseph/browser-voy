@@ -1,7 +1,12 @@
+use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+use std::boxed::Box;
+use std::net::ToSocketAddrs;
+
 struct URL {
     scheme: String,
     host: String,
     path: String,
+    port: u16,
 }
 
 const PROTOCOL_DELIMITER: char = ':';
@@ -31,12 +36,72 @@ impl URL {
             path
         };
 
-        URL { scheme, host, path }
+        let port = if scheme == "HTTPS" { 443 } else { 80 };
+
+        URL {
+            scheme,
+            host,
+            path,
+            port,
+        }
     }
 }
 
-fn main() {
-    println!("Hello, world!");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let socket = Socket::new(
+        /* AF_INET */ Domain::IPV4,
+        /* SOCK_STREAM */ Type::STREAM,
+        /* IPPROTO_TCP */ Some(Protocol::TCP),
+    )?;
+
+    let url = URL::new("http://example.edu");
+
+    let Ok(mut addresses) = format!("{}:{}", url.host, url.port).to_socket_addrs() else {
+        panic!(
+            "Failed to resolve, {host}:{port}",
+            host = url.host,
+            port = url.port
+        );
+    };
+
+    let Some(address) = addresses.next() else {
+        panic!("No address available");
+    };
+
+    let Ok(_) = socket.connect(&SockAddr::from(address)) else {
+        panic!("Could not connect");
+    };
+
+    let request = "GET / HTTP/1.0\r\nHOST: example.edu\r\n\r\n";
+
+    println!("Request:\n{request}");
+
+    let Ok(_) = socket.send(request.as_bytes()) else {
+        panic!("Failed to send request");
+    };
+
+    let mut chunks = vec![];
+    // let mut buffer = Vec::with_capacity(1 << 16);
+    let mut buffer = Vec::with_capacity(1 << 8 /* 256 */);
+
+    loop {
+        let Ok(received) = socket.recv(buffer.spare_capacity_mut()) else {
+            panic!("Failed to receive buffer");
+        };
+
+        if received == 0 {
+            break;
+        }
+
+        unsafe { buffer.set_len(received) }
+
+        // append also clears buffer
+        chunks.append(&mut buffer);
+    }
+
+    println!("Response:\n{s}", s = String::from_utf8_lossy(&chunks));
+
+    Ok(())
 }
 
 #[cfg(test)]
