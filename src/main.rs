@@ -57,6 +57,22 @@ struct Response<'a> {
     body: String,
 }
 
+fn print_body(body: &str) {
+    let mut in_tag = false;
+
+    for ch in body.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => {
+                print!("{ch}");
+            }
+
+            _ => {}
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
@@ -176,7 +192,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "content-encoding found"
     );
 
-    println!("{response:?}");
+    print_body(&response.body);
 
     Ok(())
 }
