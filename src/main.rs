@@ -1,5 +1,6 @@
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::boxed::Box;
+use std::collections::HashMap;
 use std::net::ToSocketAddrs;
 
 struct URL {
@@ -24,6 +25,7 @@ impl URL {
 
         let host = it
             .by_ref()
+            // Some schemes do not have double slash
             .skip_while(|&c| c == PATH_DELIMITER)
             .take_while(|&c| c != PATH_DELIMITER)
             .collect::<_>();
@@ -45,6 +47,15 @@ impl URL {
             port,
         }
     }
+}
+
+#[derive(Debug)]
+struct Response<'a> {
+    version: &'a str,
+    status_code: u16,
+    explanation: &'a str,
+    headers: HashMap<String, &'a str>,
+    body: String,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -99,7 +110,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         chunks.append(&mut buffer);
     }
 
-    println!("Response:\n{s}", s = String::from_utf8_lossy(&chunks));
+    let response = String::from_utf8_lossy(&chunks);
+
+    let mut response_lines = response.lines();
+
+    println!("Response:");
+
+    let Some(status) = response_lines.next() else {
+        panic!("No status in Response");
+    };
+
+    let mut status_parts = status.split_whitespace();
+
+    let Some(version) = status_parts.next() else {
+        panic!("No version in status");
+    };
+
+    let Some(status_code) = status_parts.next() else {
+        panic!("No status_code in status");
+    };
+
+    let Ok(status_code) = status_code.parse::<u16>() else {
+        panic!("Status code is not u16");
+    };
+
+    let Some(explanation) = status_parts.next() else {
+        panic!("No explanation in status");
+    };
+
+    let headers = response_lines
+        .by_ref()
+        .take_while(|l| !l.is_empty())
+        .filter_map(|row| row.split_once(": "))
+        .map(|(key, value)| (key.to_lowercase(), value.trim()))
+        .collect::<HashMap<_, _>>();
+
+    let body = response_lines.collect::<Vec<&str>>().join("\r\n");
+
+    let response = Response {
+        version,
+        status_code,
+        explanation,
+        headers,
+        body,
+    };
+
+    assert!(
+        !response.headers.contains_key("transfer-encoding"),
+        "transfer-encoding found"
+    );
+
+    assert!(
+        !response.headers.contains_key("content-encoding"),
+        "content-encoding found"
+    );
+
+    println!("{response:?}");
 
     Ok(())
 }
