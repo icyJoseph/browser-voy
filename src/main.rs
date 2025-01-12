@@ -1,7 +1,9 @@
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::boxed::Box;
 use std::collections::HashMap;
+use std::env;
 use std::net::ToSocketAddrs;
+use std::process::exit;
 
 struct URL {
     scheme: String,
@@ -17,6 +19,7 @@ impl URL {
     fn new(url: &str) -> Self {
         let mut it = url.chars();
 
+        // TODO: use split_once on `:`
         let scheme = it
             .by_ref()
             .take_while(|&c| c != PROTOCOL_DELIMITER)
@@ -59,13 +62,21 @@ struct Response<'a> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = env::args().collect();
+
+    let Some(url) = &args.get(1) else {
+        println!("No target URL was given");
+
+        exit(1)
+    };
+
     let socket = Socket::new(
         /* AF_INET */ Domain::IPV4,
         /* SOCK_STREAM */ Type::STREAM,
         /* IPPROTO_TCP */ Some(Protocol::TCP),
     )?;
 
-    let url = URL::new("http://example.edu");
+    let url = URL::new(url);
 
     let Ok(mut addresses) = format!("{}:{}", url.host, url.port).to_socket_addrs() else {
         panic!(
@@ -83,7 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         panic!("Could not connect");
     };
 
-    let request = "GET / HTTP/1.0\r\nHOST: example.edu\r\n\r\n";
+    let request = format!("GET / HTTP/1.0\r\nHOST: {host}\r\n\r\n", host = url.host);
 
     println!("Request:\n{request}");
 
@@ -195,5 +206,9 @@ mod tests {
         let result = URL::new("HTTPS://www.example.org");
 
         assert_eq!(result.path, "/");
+
+        let result = URL::new("www.example.org");
+
+        assert_eq!(result.host, "www.example.org");
     }
 }
