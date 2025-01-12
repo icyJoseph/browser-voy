@@ -167,15 +167,23 @@ impl URL {
     }
 }
 
-    let mut status_parts = status.split_whitespace();
+impl Response {
+    fn print_body(self) {
+        let mut in_tag = false;
 
-    let Some(version) = status_parts.next() else {
-        panic!("No version in status");
-    };
+        for ch in self.body.chars() {
+            match ch {
+                '<' => in_tag = true,
+                '>' => in_tag = false,
+                _ if !in_tag => {
+                    print!("{ch}");
+                }
 
-    let Some(status_code) = status_parts.next() else {
-        panic!("No status_code in status");
-    };
+                _ => {}
+            }
+        }
+    }
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
@@ -188,7 +196,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let response = URL::new(url).request()?;
 
-    print_body(&response.body);
+    response.print_body();
 
     Ok(())
 }
