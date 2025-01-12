@@ -35,11 +35,7 @@ impl URL {
 
         let mut path = it.collect::<String>();
 
-        path = if path.is_empty() {
-            "/".to_string()
-        } else {
-            path
-        };
+        path.insert(0, PATH_DELIMITER);
 
         let port = if scheme == "HTTPS" { 443 } else { 80 };
 
@@ -94,7 +90,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         panic!("Could not connect");
     };
 
-    let request = format!("GET / HTTP/1.0\r\nHOST: {host}\r\n\r\n", host = url.host);
+    let request = format!(
+        "GET {path} HTTP/1.0\r\nHOST: {host}\r\n\r\n",
+        path = url.path,
+        host = url.host
+    );
 
     println!("Request:\n{request}");
 
@@ -191,13 +191,13 @@ mod tests {
 
         assert_eq!(result.scheme, "https");
         assert_eq!(result.host, "example.org");
-        assert_eq!(result.path, "index.html");
+        assert_eq!(result.path, "/index.html");
 
         let result = URL::new("http://www.example.org/example/index.html");
 
         assert_eq!(result.scheme, "http");
         assert_eq!(result.host, "www.example.org");
-        assert_eq!(result.path, "example/index.html");
+        assert_eq!(result.path, "/example/index.html");
 
         let result = URL::new("HTTPS://www.example.org/");
 
