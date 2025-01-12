@@ -12,6 +12,15 @@ struct URL {
     port: u16,
 }
 
+#[derive(Debug)]
+struct Response {
+    version: String,
+    status_code: u16,
+    explanation: String,
+    headers: HashMap<String, String>,
+    body: String,
+}
+
 const PROTOCOL_DELIMITER: char = ':';
 const PATH_DELIMITER: char = '/';
 
@@ -46,106 +55,117 @@ impl URL {
             port,
         }
     }
-}
 
-#[derive(Debug)]
-struct Response<'a> {
-    version: &'a str,
-    status_code: u16,
-    explanation: &'a str,
-    headers: HashMap<String, &'a str>,
-    body: String,
-}
+    fn request(self) -> Result<Response, Box<dyn std::error::Error>> {
+        let socket = Socket::new(
+            /* AF_INET */ Domain::IPV4,
+            /* SOCK_STREAM */ Type::STREAM,
+            /* IPPROTO_TCP */ Some(Protocol::TCP),
+        )?;
 
-fn print_body(body: &str) {
-    let mut in_tag = false;
-
-    for ch in body.chars() {
-        match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => {
-                print!("{ch}");
-            }
-
-            _ => {}
-        }
-    }
-}
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = env::args().collect();
-
-    let Some(url) = &args.get(1) else {
-        println!("No target URL was given");
-
-        exit(1)
-    };
-
-    let socket = Socket::new(
-        /* AF_INET */ Domain::IPV4,
-        /* SOCK_STREAM */ Type::STREAM,
-        /* IPPROTO_TCP */ Some(Protocol::TCP),
-    )?;
-
-    let url = URL::new(url);
-
-    let Ok(mut addresses) = format!("{}:{}", url.host, url.port).to_socket_addrs() else {
-        panic!(
-            "Failed to resolve, {host}:{port}",
-            host = url.host,
-            port = url.port
-        );
-    };
-
-    let Some(address) = addresses.next() else {
-        panic!("No address available");
-    };
-
-    let Ok(_) = socket.connect(&SockAddr::from(address)) else {
-        panic!("Could not connect");
-    };
-
-    let request = format!(
-        "GET {path} HTTP/1.0\r\nHOST: {host}\r\n\r\n",
-        path = url.path,
-        host = url.host
-    );
-
-    println!("Request:\n{request}");
-
-    let Ok(_) = socket.send(request.as_bytes()) else {
-        panic!("Failed to send request");
-    };
-
-    let mut chunks = vec![];
-    // let mut buffer = Vec::with_capacity(1 << 16);
-    let mut buffer = Vec::with_capacity(1 << 8 /* 256 */);
-
-    loop {
-        let Ok(received) = socket.recv(buffer.spare_capacity_mut()) else {
-            panic!("Failed to receive buffer");
+        let Ok(mut addresses) = format!("{}:{}", self.host, self.port).to_socket_addrs() else {
+            panic!(
+                "Failed to resolve, {host}:{port}",
+                host = self.host,
+                port = self.port
+            );
         };
 
-        if received == 0 {
-            break;
+        let Some(address) = addresses.next() else {
+            panic!("No address available");
+        };
+
+        let Ok(_) = socket.connect(&SockAddr::from(address)) else {
+            panic!("Could not connect");
+        };
+
+        let request = format!(
+            "GET {path} HTTP/1.0\r\nHOST: {host}\r\n\r\n",
+            path = self.path,
+            host = self.host
+        );
+
+        println!("Request:\n{request}");
+
+        let Ok(_) = socket.send(request.as_bytes()) else {
+            panic!("Failed to send request");
+        };
+
+        let mut chunks = vec![];
+        // let mut buffer = Vec::with_capacity(1 << 16);
+        let mut buffer = Vec::with_capacity(1 << 8 /* 256 */);
+
+        loop {
+            let Ok(received) = socket.recv(buffer.spare_capacity_mut()) else {
+                panic!("Failed to receive buffer");
+            };
+
+            if received == 0 {
+                break;
+            }
+
+            unsafe { buffer.set_len(received) }
+
+            // append also clears buffer
+            chunks.append(&mut buffer);
         }
 
-        unsafe { buffer.set_len(received) }
+        let response = String::from_utf8_lossy(&chunks).into_owned();
 
-        // append also clears buffer
-        chunks.append(&mut buffer);
+        let mut response_lines = response.lines();
+
+        println!("Response:");
+
+        let Some(status) = response_lines.next() else {
+            panic!("No status in Response");
+        };
+
+        let mut status_parts = status.split_whitespace();
+
+        let Some(version) = status_parts.next() else {
+            panic!("No version in status");
+        };
+
+        let Some(status_code) = status_parts.next() else {
+            panic!("No status_code in status");
+        };
+
+        let Ok(status_code) = status_code.parse::<u16>() else {
+            panic!("Status code is not u16");
+        };
+
+        let Some(explanation) = status_parts.next() else {
+            panic!("No explanation in status");
+        };
+
+        let headers = response_lines
+            .by_ref()
+            .take_while(|l| !l.is_empty())
+            .filter_map(|row| row.split_once(": "))
+            .map(|(key, value)| (key.to_lowercase(), value.to_owned()))
+            .collect::<HashMap<_, _>>();
+
+        assert!(
+            !headers.contains_key("transfer-encoding"),
+            "transfer-encoding found"
+        );
+
+        assert!(
+            !headers.contains_key("content-encoding"),
+            "content-encoding found"
+        );
+
+        let body = response_lines.collect::<Vec<&str>>().join("\r\n");
+
+        Ok(Response {
+            version: version.to_owned(),
+            status_code: status_code.to_owned(),
+            explanation: explanation.to_owned(),
+            headers,
+            body,
+        })
     }
-
-    let response = String::from_utf8_lossy(&chunks);
-
-    let mut response_lines = response.lines();
-
-    println!("Response:");
-
-    let Some(status) = response_lines.next() else {
-        panic!("No status in Response");
-    };
+}
 
     let mut status_parts = status.split_whitespace();
 
@@ -157,40 +177,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         panic!("No status_code in status");
     };
 
-    let Ok(status_code) = status_code.parse::<u16>() else {
-        panic!("Status code is not u16");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = env::args().collect();
+
+    let Some(url) = &args.get(1) else {
+        println!("No target URL was given");
+
+        exit(1)
     };
 
-    let Some(explanation) = status_parts.next() else {
-        panic!("No explanation in status");
-    };
-
-    let headers = response_lines
-        .by_ref()
-        .take_while(|l| !l.is_empty())
-        .filter_map(|row| row.split_once(": "))
-        .map(|(key, value)| (key.to_lowercase(), value.trim()))
-        .collect::<HashMap<_, _>>();
-
-    let body = response_lines.collect::<Vec<&str>>().join("\r\n");
-
-    let response = Response {
-        version,
-        status_code,
-        explanation,
-        headers,
-        body,
-    };
-
-    assert!(
-        !response.headers.contains_key("transfer-encoding"),
-        "transfer-encoding found"
-    );
-
-    assert!(
-        !response.headers.contains_key("content-encoding"),
-        "content-encoding found"
-    );
+    let response = URL::new(url).request()?;
 
     print_body(&response.body);
 
