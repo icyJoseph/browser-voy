@@ -141,8 +141,7 @@ impl Url {
                 break;
             }
 
-            // append also clears buffer
-            chunks.extend_from_slice(&mut buffer);
+            chunks.extend_from_slice(&buffer);
         }
 
         let response = String::from_utf8_lossy(&chunks).into_owned();
