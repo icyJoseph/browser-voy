@@ -7,6 +7,7 @@ use std::process::exit;
 
 struct URL {
     scheme: String,
+    hostname: String,
     host: String,
     path: String,
     port: u16,
@@ -22,8 +23,10 @@ struct Response {
 }
 
 const PROTOCOL_DELIMITER: char = ':';
+const PORT_DELIMITER: char = ':';
 const PATH_DELIMITER: char = '/';
 
+#[derive(PartialEq)]
 enum Schemes {
     HTTPS,
     HTTP,
@@ -42,16 +45,28 @@ impl Schemes {
 
         value.to_string()
     }
+
+    fn extract(url: &str) -> (Self, &str) {
+        let (scheme, rest) = match url.split_once(PROTOCOL_DELIMITER) {
+            None => ("", url),
+            Some((scheme, rest)) => (scheme, rest),
+        };
+
+        let scheme = scheme.to_lowercase();
+
+        match scheme.as_str() {
+            "" | "https" => (Schemes::HTTPS, rest),
+            "http" => (Schemes::HTTP, rest),
+            "file" => (Schemes::FILE, rest),
+            "data" => (Schemes::DATA, rest),
+            _ => (Schemes::HTTPS, url),
+        }
+    }
 }
 
 impl URL {
     fn new(url: &str) -> Self {
-        let (scheme, rest) = match url.split_once(PROTOCOL_DELIMITER) {
-            None => ("https", url), // assume https
-            Some(parts) => parts,
-        };
-
-        let scheme = scheme.to_lowercase();
+        let (scheme, rest) = Schemes::extract(url);
 
         let mut it = rest.chars();
 
@@ -60,20 +75,30 @@ impl URL {
             // Some schemes do not have double slash
             .skip_while(|&c| c == PATH_DELIMITER)
             .take_while(|&c| c != PATH_DELIMITER)
-            .collect::<_>();
+            .collect::<String>();
+
+        let (hostname, port) = match host.split_once(PORT_DELIMITER) {
+            None => (host, if scheme == Schemes::HTTPS { 443 } else { 80 }),
+            Some((hostname, port)) => {
+                let Some(port) = port.parse::<u16>().ok() else {
+                    panic!("Unexpected port {port}");
+                };
+
+                (hostname.to_string(), port)
+            }
+        };
+
+        let host = format!("{hostname}:{port}");
 
         let mut path = it.collect::<String>();
 
         path.insert(0, PATH_DELIMITER);
 
-        let port = if scheme == Schemes::value(Schemes::HTTPS) {
-            443
-        } else {
-            80
-        };
+        let scheme = scheme.value();
 
         URL {
             scheme,
+            hostname,
             host,
             path,
             port,
@@ -87,12 +112,8 @@ impl URL {
             /* IPPROTO_TCP */ Some(Protocol::TCP),
         )?;
 
-        let Ok(mut addresses) = format!("{}:{}", self.host, self.port).to_socket_addrs() else {
-            panic!(
-                "Failed to resolve, {host}:{port}",
-                host = self.host,
-                port = self.port
-            );
+        let Ok(mut addresses) = self.host.to_socket_addrs() else {
+            panic!("Failed to resolve, {host}", host = self.host,);
         };
 
         let Some(address) = addresses.next() else {
@@ -234,13 +255,15 @@ mod tests {
         let result = URL::new("https://example.org/index.html");
 
         assert_eq!(result.scheme, "https");
-        assert_eq!(result.host, "example.org");
+        assert_eq!(result.host, "example.org:443");
+        assert_eq!(result.hostname, "example.org");
         assert_eq!(result.path, "/index.html");
 
         let result = URL::new("http://www.example.org/example/index.html");
 
         assert_eq!(result.scheme, "http");
-        assert_eq!(result.host, "www.example.org");
+        assert_eq!(result.host, "www.example.org:80");
+        assert_eq!(result.hostname, "www.example.org");
         assert_eq!(result.path, "/example/index.html");
 
         let result = URL::new("HTTPS://www.example.org/");
@@ -253,6 +276,12 @@ mod tests {
 
         let result = URL::new("www.example.org");
 
-        assert_eq!(result.host, "www.example.org");
+        assert_eq!(result.hostname, "www.example.org");
+
+        let result = URL::new("www.example.org:8080");
+
+        assert_eq!(result.hostname, "www.example.org");
+        assert_eq!(result.host, "www.example.org:8080");
+        assert_eq!(result.port, 8080);
     }
 }
