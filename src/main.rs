@@ -6,25 +6,6 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::process::exit;
 
-#[allow(unused)]
-struct Url {
-    scheme: Scheme,
-    hostname: String,
-    host: String,
-    path: String,
-    port: u16,
-}
-
-#[allow(unused)]
-#[derive(Debug)]
-struct Response {
-    version: String,
-    status_code: u16,
-    explanation: String,
-    headers: HashMap<String, String>,
-    body: String,
-}
-
 const PROTOCOL_DELIMITER: char = ':';
 const PORT_DELIMITER: char = ':';
 const PATH_DELIMITER: char = '/';
@@ -35,6 +16,31 @@ enum Scheme {
     Http,
     File,
     Data,
+}
+
+#[allow(unused)]
+struct Url {
+    scheme: Scheme,
+    hostname: String,
+    host: String,
+    path: String,
+    port: u16,
+}
+
+#[allow(unused)]
+struct Request<'a> {
+    method: &'a str,
+    url: &'a Url,
+}
+
+#[allow(unused)]
+#[derive(Debug)]
+struct Response {
+    version: String,
+    status_code: u16,
+    explanation: String,
+    headers: HashMap<String, String>,
+    body: String,
 }
 
 impl Scheme {
@@ -53,6 +59,73 @@ impl Scheme {
             "data" => (Scheme::Data, rest),
             _ => (Scheme::Https, url),
         }
+    }
+}
+
+impl<'a> Request<'a> {
+    fn new(url: &'a Url, method: &'a str) -> Self {
+        Request { method, url }
+    }
+
+    fn as_bytes(&self) -> Vec<u8> {
+        let request = format!(
+            "GET {path} HTTP/1.0\r\nHOST: {host}\r\n\r\n",
+            path = self.url.path,
+            host = self.url.host
+        );
+
+        if cfg!(debug_assertions) {
+            println!("Request:\n{request}");
+        }
+
+        request.as_bytes().to_vec()
+    }
+}
+
+impl Response {
+    fn print_body(self) {
+        let mut in_tag = false;
+
+        for ch in self.body.chars() {
+            match ch {
+                '<' => in_tag = true,
+                '>' => in_tag = false,
+                _ if !in_tag => {
+                    print!("{ch}");
+                }
+
+                _ => {}
+            }
+        }
+    }
+
+    fn execute(request: Request) -> String {
+        let mut chunks = vec![];
+
+        let Ok(mut socket) = TcpStream::connect(&request.url.host) else {
+            panic!("Could not connect");
+        };
+
+        if request.url.scheme == Scheme::Https {
+            let Ok(connector) = TlsConnector::new() else {
+                panic!("Failed to create TLS Connector");
+            };
+
+            let Ok(mut tls_socket) = connector.connect(&request.url.hostname, socket) else {
+                panic!("Failed to upgrade TLS");
+            };
+
+            let _ = tls_socket.write_all(&request.as_bytes());
+
+            let _ = tls_socket.read_to_end(&mut chunks);
+        } else {
+            let _ = socket.write_all(&request.as_bytes());
+
+            let _ = socket.read_to_end(&mut chunks);
+        }
+        let response = String::from_utf8_lossy(&chunks).into_owned();
+
+        response
     }
 }
 
@@ -95,47 +168,16 @@ impl Url {
         }
     }
 
-    fn request(self) -> Result<Response, Box<dyn std::error::Error>> {
-        let request = format!(
-            "GET {path} HTTP/1.0\r\nHOST: {host}\r\n\r\n",
-            path = self.path,
-            host = self.host
-        );
+    fn load(self) -> Result<Response, Box<dyn std::error::Error>> {
+        let request = Request::new(&self, "GET");
 
-        println!("Request:\n{request}");
-
-        let response = {
-            let mut chunks = vec![];
-
-            let Ok(mut socket) = TcpStream::connect(&self.host) else {
-                panic!("Could not connect");
-            };
-
-            if self.scheme == Scheme::Https {
-                let Ok(connector) = TlsConnector::new() else {
-                    panic!("Failed to create TLS Connector");
-                };
-
-                let Ok(mut tls_socket) = connector.connect(&self.hostname, socket) else {
-                    panic!("Failed to upgrade TLS");
-                };
-
-                let _ = tls_socket.write_all(request.as_bytes());
-
-                let _ = tls_socket.read_to_end(&mut chunks);
-            } else {
-                let _ = socket.write_all(request.as_bytes());
-
-                let _ = socket.read_to_end(&mut chunks);
-            }
-            let response = String::from_utf8_lossy(&chunks).into_owned();
-
-            response
-        };
+        let response = Response::execute(request);
 
         let mut response_lines = response.lines();
 
-        println!("Response:");
+        if cfg!(debug_assertions) {
+            println!("Response:");
+        }
 
         let Some(status) = response_lines.next() else {
             panic!("No status in Response");
@@ -188,24 +230,6 @@ impl Url {
     }
 }
 
-impl Response {
-    fn print_body(self) {
-        let mut in_tag = false;
-
-        for ch in self.body.chars() {
-            match ch {
-                '<' => in_tag = true,
-                '>' => in_tag = false,
-                _ if !in_tag => {
-                    print!("{ch}");
-                }
-
-                _ => {}
-            }
-        }
-    }
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
@@ -215,7 +239,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         exit(1)
     };
 
-    let response = Url::new(url).request()?;
+    let response = Url::new(url).load()?;
 
     response.print_body();
 
@@ -230,21 +254,21 @@ mod tests {
     fn parse_url() {
         let result = Url::new("https://example.org/index.html");
 
-        assert_eq!(result.scheme, "https");
+        assert_eq!(result.scheme, Scheme::Https);
         assert_eq!(result.host, "example.org:443");
         assert_eq!(result.hostname, "example.org");
         assert_eq!(result.path, "/index.html");
 
         let result = Url::new("http://www.example.org/example/index.html");
 
-        assert_eq!(result.scheme, "http");
+        assert_eq!(result.scheme, Scheme::Http);
         assert_eq!(result.host, "www.example.org:80");
         assert_eq!(result.hostname, "www.example.org");
         assert_eq!(result.path, "/example/index.html");
 
         let result = Url::new("HTTPS://www.example.org/");
 
-        assert_eq!(result.scheme, "https");
+        assert_eq!(result.scheme, Scheme::Https);
 
         let result = Url::new("HTTPS://www.example.org");
 
