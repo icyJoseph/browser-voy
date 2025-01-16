@@ -5,7 +5,7 @@ use std::io::prelude::*;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::process::exit;
 
-struct URL {
+struct Url {
     scheme: String,
     hostname: String,
     host: String,
@@ -27,20 +27,20 @@ const PORT_DELIMITER: char = ':';
 const PATH_DELIMITER: char = '/';
 
 #[derive(PartialEq)]
-enum Schemes {
-    HTTPS,
-    HTTP,
-    FILE,
-    DATA,
+enum Scheme {
+    Https,
+    Http,
+    File,
+    Data,
 }
 
-impl Schemes {
+impl Scheme {
     fn value(self) -> String {
         let value = match self {
-            Schemes::HTTPS => "https",
-            Schemes::HTTP => "http",
-            Schemes::FILE => "file",
-            Schemes::DATA => "data",
+            Scheme::Https => "https",
+            Scheme::Http => "http",
+            Scheme::File => "file",
+            Scheme::Data => "data",
         };
 
         value.to_string()
@@ -55,18 +55,18 @@ impl Schemes {
         let scheme = scheme.to_lowercase();
 
         match scheme.as_str() {
-            "" | "https" => (Schemes::HTTPS, rest),
-            "http" => (Schemes::HTTP, rest),
-            "file" => (Schemes::FILE, rest),
-            "data" => (Schemes::DATA, rest),
-            _ => (Schemes::HTTPS, url),
+            "" | "https" => (Scheme::Https, rest),
+            "http" => (Scheme::Http, rest),
+            "file" => (Scheme::File, rest),
+            "data" => (Scheme::Data, rest),
+            _ => (Scheme::Https, url),
         }
     }
 }
 
-impl URL {
+impl Url {
     fn new(url: &str) -> Self {
-        let (scheme, rest) = Schemes::extract(url);
+        let (scheme, rest) = Scheme::extract(url);
 
         let mut it = rest.chars();
 
@@ -78,7 +78,7 @@ impl URL {
             .collect::<String>();
 
         let (hostname, port) = match host.split_once(PORT_DELIMITER) {
-            None => (host, if scheme == Schemes::HTTPS { 443 } else { 80 }),
+            None => (host, if scheme == Scheme::Https { 443 } else { 80 }),
             Some((hostname, port)) => {
                 let Some(port) = port.parse::<u16>().ok() else {
                     panic!("Unexpected port {port}");
@@ -96,7 +96,7 @@ impl URL {
 
         let scheme = scheme.value();
 
-        URL {
+        Url {
             scheme,
             hostname,
             host,
@@ -118,30 +118,15 @@ impl URL {
             panic!("Could not connect");
         };
 
-        // let socket = Socket::new(
-        //     /* AF_INET */ Domain::IPV4,
-        //     /* SOCK_STREAM */ Type::STREAM,
-        //     /* IPPROTO_TCP */ Some(Protocol::TCP),
-        // )?;
-        //
-
-        // let Ok(_) = socket.connect(&SockAddr::from(address)) else {
-        //     panic!("Could not connect");
-        // };
-        //
         let request = format!(
             "GET {path} HTTP/1.0\r\nHOST: {host}\r\n\r\n",
             path = self.path,
             host = self.host
         );
 
-        socket.write(request.as_bytes());
+        let _ = socket.write(request.as_bytes());
 
         println!("Request:\n{request}");
-
-        // let Ok(_) = socket.send(request.as_bytes()) else {
-        //     panic!("Failed to send request");
-        // };
 
         let mut chunks = vec![];
 
@@ -244,7 +229,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         exit(1)
     };
 
-    let response = URL::new(url).request()?;
+    let response = Url::new(url).request()?;
 
     response.print_body();
 
@@ -257,33 +242,33 @@ mod tests {
 
     #[test]
     fn parse_url() {
-        let result = URL::new("https://example.org/index.html");
+        let result = Url::new("https://example.org/index.html");
 
         assert_eq!(result.scheme, "https");
         assert_eq!(result.host, "example.org:443");
         assert_eq!(result.hostname, "example.org");
         assert_eq!(result.path, "/index.html");
 
-        let result = URL::new("http://www.example.org/example/index.html");
+        let result = Url::new("http://www.example.org/example/index.html");
 
         assert_eq!(result.scheme, "http");
         assert_eq!(result.host, "www.example.org:80");
         assert_eq!(result.hostname, "www.example.org");
         assert_eq!(result.path, "/example/index.html");
 
-        let result = URL::new("HTTPS://www.example.org/");
+        let result = Url::new("HTTPS://www.example.org/");
 
         assert_eq!(result.scheme, "https");
 
-        let result = URL::new("HTTPS://www.example.org");
+        let result = Url::new("HTTPS://www.example.org");
 
         assert_eq!(result.path, "/");
 
-        let result = URL::new("www.example.org");
+        let result = Url::new("www.example.org");
 
         assert_eq!(result.hostname, "www.example.org");
 
-        let result = URL::new("www.example.org:8080");
+        let result = Url::new("www.example.org:8080");
 
         assert_eq!(result.hostname, "www.example.org");
         assert_eq!(result.host, "www.example.org:8080");
