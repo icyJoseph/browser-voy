@@ -83,96 +83,7 @@ impl<'a> Request<'a> {
 }
 
 impl Response {
-    fn print_body(self) {
-        let mut in_tag = false;
-
-        for ch in self.body.chars() {
-            match ch {
-                '<' => in_tag = true,
-                '>' => in_tag = false,
-                _ if !in_tag => {
-                    print!("{ch}");
-                }
-
-                _ => {}
-            }
-        }
-    }
-
-    fn execute(request: Request) -> String {
-        let mut chunks = vec![];
-
-        let Ok(mut socket) = TcpStream::connect(&request.url.host) else {
-            panic!("Could not connect");
-        };
-
-        if request.url.scheme == Scheme::Https {
-            let Ok(connector) = TlsConnector::new() else {
-                panic!("Failed to create TLS Connector");
-            };
-
-            let Ok(mut tls_socket) = connector.connect(&request.url.hostname, socket) else {
-                panic!("Failed to upgrade TLS");
-            };
-
-            let _ = tls_socket.write_all(&request.as_bytes());
-
-            let _ = tls_socket.read_to_end(&mut chunks);
-        } else {
-            let _ = socket.write_all(&request.as_bytes());
-
-            let _ = socket.read_to_end(&mut chunks);
-        }
-        let response = String::from_utf8_lossy(&chunks).into_owned();
-
-        response
-    }
-}
-
-impl Url {
-    fn new(url: &str) -> Self {
-        let (scheme, rest) = Scheme::extract(url);
-
-        let mut it = rest.chars();
-
-        let host = it
-            .by_ref()
-            // Some schemes do not have double slash
-            .skip_while(|&c| c == PATH_DELIMITER)
-            .take_while(|&c| c != PATH_DELIMITER)
-            .collect::<String>();
-
-        let (hostname, port) = match host.split_once(PORT_DELIMITER) {
-            None => (host, if scheme == Scheme::Https { 443 } else { 80 }),
-            Some((hostname, port)) => {
-                let Some(port) = port.parse::<u16>().ok() else {
-                    panic!("Unexpected port {port}");
-                };
-
-                (hostname.to_string(), port)
-            }
-        };
-
-        let host = format!("{hostname}:{port}");
-
-        let mut path = it.collect::<String>();
-
-        path.insert(0, PATH_DELIMITER);
-
-        Url {
-            scheme,
-            hostname,
-            host,
-            path,
-            port,
-        }
-    }
-
-    fn load(self) -> Result<Response, Box<dyn std::error::Error>> {
-        let request = Request::new(&self, "GET");
-
-        let response = Response::execute(request);
-
+    fn parse(response: String) -> Result<Self, Box<dyn std::error::Error>> {
         let mut response_lines = response.lines();
 
         if cfg!(debug_assertions) {
@@ -227,6 +138,97 @@ impl Url {
             headers,
             body,
         })
+    }
+
+    fn execute(request: Request) -> String {
+        let mut chunks = vec![];
+
+        let Ok(mut socket) = TcpStream::connect(&request.url.host) else {
+            panic!("Could not connect");
+        };
+
+        if request.url.scheme == Scheme::Https {
+            let Ok(connector) = TlsConnector::new() else {
+                panic!("Failed to create TLS Connector");
+            };
+
+            let Ok(mut tls_socket) = connector.connect(&request.url.hostname, socket) else {
+                panic!("Failed to upgrade TLS");
+            };
+
+            let _ = tls_socket.write_all(&request.as_bytes());
+
+            let _ = tls_socket.read_to_end(&mut chunks);
+        } else {
+            let _ = socket.write_all(&request.as_bytes());
+
+            let _ = socket.read_to_end(&mut chunks);
+        }
+        let response = String::from_utf8_lossy(&chunks).into_owned();
+
+        response
+    }
+
+    fn print_body(self) {
+        let mut in_tag = false;
+
+        for ch in self.body.chars() {
+            match ch {
+                '<' => in_tag = true,
+                '>' => in_tag = false,
+                _ if !in_tag => {
+                    print!("{ch}");
+                }
+
+                _ => continue,
+            }
+        }
+    }
+}
+
+impl Url {
+    fn new(url: &str) -> Self {
+        let (scheme, rest) = Scheme::extract(url);
+
+        let mut it = rest.chars();
+
+        let host = it
+            .by_ref()
+            // Some schemes do not have double slash
+            .skip_while(|&c| c == PATH_DELIMITER)
+            .take_while(|&c| c != PATH_DELIMITER)
+            .collect::<String>();
+
+        let (hostname, port) = match host.split_once(PORT_DELIMITER) {
+            None => (host, if scheme == Scheme::Https { 443 } else { 80 }),
+            Some((hostname, port)) => {
+                let Some(port) = port.parse::<u16>().ok() else {
+                    panic!("Unexpected port {port}");
+                };
+
+                (hostname.to_string(), port)
+            }
+        };
+
+        let host = format!("{hostname}:{port}");
+
+        let mut path = it.collect::<String>();
+
+        path.insert(0, PATH_DELIMITER);
+
+        Url {
+            scheme,
+            hostname,
+            host,
+            path,
+            port,
+        }
+    }
+
+    fn load(self) -> Result<Response, Box<dyn std::error::Error>> {
+        let request = Request::new(&self, "GET");
+
+        Response::parse(Response::execute(request))
     }
 }
 
