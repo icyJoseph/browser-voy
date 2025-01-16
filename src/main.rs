@@ -68,11 +68,30 @@ impl<'a> Request<'a> {
     }
 
     fn as_bytes(&self) -> Vec<u8> {
-        let request = format!(
-            "GET {path} HTTP/1.0\r\nHOST: {host}\r\n\r\n",
+        let request_line = format!(
+            "{method} {path} {version}",
+            method = self.method,
             path = self.url.path,
-            host = self.url.host
+            version = "HTTP/1.1"
         );
+
+        let mut request_parts = vec![];
+
+        request_parts.push(request_line);
+
+        let mut headers: HashMap<&str, &str> = HashMap::new();
+
+        headers.insert("Host", &self.url.host);
+        headers.insert("Connection", "close");
+        headers.insert("User-Agent", "BrowserVoy");
+
+        for (key, value) in headers {
+            request_parts.push(format!("{key}: {value}"));
+        }
+
+        request_parts.push("\r\n".to_string());
+
+        let request = request_parts.join("\r\n");
 
         if cfg!(debug_assertions) {
             println!("Request:\n{request}");
