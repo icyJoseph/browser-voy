@@ -1,8 +1,8 @@
-use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::env;
-use std::net::ToSocketAddrs;
+use std::io::prelude::*;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::process::exit;
 
 struct URL {
@@ -106,12 +106,6 @@ impl URL {
     }
 
     fn request(self) -> Result<Response, Box<dyn std::error::Error>> {
-        let socket = Socket::new(
-            /* AF_INET */ Domain::IPV4,
-            /* SOCK_STREAM */ Type::STREAM,
-            /* IPPROTO_TCP */ Some(Protocol::TCP),
-        )?;
-
         let Ok(mut addresses) = self.host.to_socket_addrs() else {
             panic!("Failed to resolve, {host}", host = self.host,);
         };
@@ -120,28 +114,41 @@ impl URL {
             panic!("No address available");
         };
 
-        let Ok(_) = socket.connect(&SockAddr::from(address)) else {
+        let Ok(mut socket) = TcpStream::connect(address) else {
             panic!("Could not connect");
         };
 
+        // let socket = Socket::new(
+        //     /* AF_INET */ Domain::IPV4,
+        //     /* SOCK_STREAM */ Type::STREAM,
+        //     /* IPPROTO_TCP */ Some(Protocol::TCP),
+        // )?;
+        //
+
+        // let Ok(_) = socket.connect(&SockAddr::from(address)) else {
+        //     panic!("Could not connect");
+        // };
+        //
         let request = format!(
             "GET {path} HTTP/1.0\r\nHOST: {host}\r\n\r\n",
             path = self.path,
             host = self.host
         );
 
+        socket.write(request.as_bytes());
+
         println!("Request:\n{request}");
 
-        let Ok(_) = socket.send(request.as_bytes()) else {
-            panic!("Failed to send request");
-        };
+        // let Ok(_) = socket.send(request.as_bytes()) else {
+        //     panic!("Failed to send request");
+        // };
 
         let mut chunks = vec![];
-        // let mut buffer = Vec::with_capacity(1 << 16);
-        let mut buffer = Vec::with_capacity(1 << 8 /* 256 */);
 
         loop {
-            let Ok(received) = socket.recv(buffer.spare_capacity_mut()) else {
+            let mut buffer = [0; 1 << 8 /* 256 */];
+
+            let Ok(received) = socket.read(&mut buffer[..]) else {
                 panic!("Failed to receive buffer");
             };
 
@@ -149,10 +156,8 @@ impl URL {
                 break;
             }
 
-            unsafe { buffer.set_len(received) }
-
             // append also clears buffer
-            chunks.append(&mut buffer);
+            chunks.extend_from_slice(&mut buffer);
         }
 
         let response = String::from_utf8_lossy(&chunks).into_owned();

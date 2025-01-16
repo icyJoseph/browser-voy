@@ -2,6 +2,3 @@
 name = "browser-voy"
 version = "0.1.0"
 edition = "2021"
-
-[dependencies]
-socket2 = "0.5.8"
