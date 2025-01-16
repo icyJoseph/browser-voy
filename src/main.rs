@@ -24,16 +24,36 @@ struct Response {
 const PROTOCOL_DELIMITER: char = ':';
 const PATH_DELIMITER: char = '/';
 
+enum Schemes {
+    HTTPS,
+    HTTP,
+    FILE,
+    DATA,
+}
+
+impl Schemes {
+    fn value(self) -> String {
+        let value = match self {
+            Schemes::HTTPS => "https",
+            Schemes::HTTP => "http",
+            Schemes::FILE => "file",
+            Schemes::DATA => "data",
+        };
+
+        value.to_string()
+    }
+}
+
 impl URL {
     fn new(url: &str) -> Self {
-        let mut it = url.chars();
+        let (scheme, rest) = match url.split_once(PROTOCOL_DELIMITER) {
+            None => ("https", url), // assume https
+            Some(parts) => parts,
+        };
 
-        // TODO: use split_once on `:`
-        let scheme = it
-            .by_ref()
-            .take_while(|&c| c != PROTOCOL_DELIMITER)
-            .collect::<String>()
-            .to_lowercase();
+        let scheme = scheme.to_lowercase();
+
+        let mut it = rest.chars();
 
         let host = it
             .by_ref()
@@ -46,7 +66,11 @@ impl URL {
 
         path.insert(0, PATH_DELIMITER);
 
-        let port = if scheme == "HTTPS" { 443 } else { 80 };
+        let port = if scheme == Schemes::value(Schemes::HTTPS) {
+            443
+        } else {
+            80
+        };
 
         URL {
             scheme,
