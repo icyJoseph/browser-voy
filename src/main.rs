@@ -1,18 +1,21 @@
+use native_tls::TlsConnector;
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::env;
-use std::io::prelude::*;
-use std::net::{TcpStream, ToSocketAddrs};
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::process::exit;
 
+#[allow(unused)]
 struct Url {
-    scheme: String,
+    scheme: Scheme,
     hostname: String,
     host: String,
     path: String,
     port: u16,
 }
 
+#[allow(unused)]
 #[derive(Debug)]
 struct Response {
     version: String,
@@ -26,7 +29,7 @@ const PROTOCOL_DELIMITER: char = ':';
 const PORT_DELIMITER: char = ':';
 const PATH_DELIMITER: char = '/';
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum Scheme {
     Https,
     Http,
@@ -35,17 +38,6 @@ enum Scheme {
 }
 
 impl Scheme {
-    fn value(self) -> String {
-        let value = match self {
-            Scheme::Https => "https",
-            Scheme::Http => "http",
-            Scheme::File => "file",
-            Scheme::Data => "data",
-        };
-
-        value.to_string()
-    }
-
     fn extract(url: &str) -> (Self, &str) {
         let (scheme, rest) = match url.split_once(PROTOCOL_DELIMITER) {
             None => ("", url),
@@ -94,8 +86,6 @@ impl Url {
 
         path.insert(0, PATH_DELIMITER);
 
-        let scheme = scheme.value();
-
         Url {
             scheme,
             hostname,
@@ -106,45 +96,42 @@ impl Url {
     }
 
     fn request(self) -> Result<Response, Box<dyn std::error::Error>> {
-        let Ok(mut addresses) = self.host.to_socket_addrs() else {
-            panic!("Failed to resolve, {host}", host = self.host,);
-        };
-
-        let Some(address) = addresses.next() else {
-            panic!("No address available");
-        };
-
-        let Ok(mut socket) = TcpStream::connect(address) else {
-            panic!("Could not connect");
-        };
-
         let request = format!(
             "GET {path} HTTP/1.0\r\nHOST: {host}\r\n\r\n",
             path = self.path,
             host = self.host
         );
 
-        let _ = socket.write(request.as_bytes());
-
         println!("Request:\n{request}");
 
-        let mut chunks = vec![];
+        let response = {
+            let mut chunks = vec![];
 
-        loop {
-            let mut buffer = [0; 1 << 8 /* 256 */];
-
-            let Ok(received) = socket.read(&mut buffer[..]) else {
-                panic!("Failed to receive buffer");
+            let Ok(mut socket) = TcpStream::connect(&self.host) else {
+                panic!("Could not connect");
             };
 
-            if received == 0 {
-                break;
+            if self.scheme == Scheme::Https {
+                let Ok(connector) = TlsConnector::new() else {
+                    panic!("Failed to create TLS Connector");
+                };
+
+                let Ok(mut tls_socket) = connector.connect(&self.hostname, socket) else {
+                    panic!("Failed to upgrade TLS");
+                };
+
+                let _ = tls_socket.write_all(request.as_bytes());
+
+                let _ = tls_socket.read_to_end(&mut chunks);
+            } else {
+                let _ = socket.write_all(request.as_bytes());
+
+                let _ = socket.read_to_end(&mut chunks);
             }
+            let response = String::from_utf8_lossy(&chunks).into_owned();
 
-            chunks.extend_from_slice(&buffer);
-        }
-
-        let response = String::from_utf8_lossy(&chunks).into_owned();
+            response
+        };
 
         let mut response_lines = response.lines();
 
