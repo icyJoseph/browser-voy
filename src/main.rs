@@ -2,6 +2,7 @@ use native_tls::TlsConnector;
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::env;
+use std::fs::File;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::process::exit;
@@ -211,6 +212,27 @@ impl Url {
 
         let mut it = rest.chars();
 
+        if scheme == Scheme::File {
+            // file:///path/to/file
+            // rest = ///path/to/file
+            let delimiter = it.by_ref().take(2).collect::<String>();
+
+            assert!(
+                delimiter == format!("{}{}", PATH_DELIMITER, PATH_DELIMITER),
+                "Malformed file input"
+            );
+
+            let file_path = it.collect::<String>();
+
+            return Url {
+                scheme: Scheme::File,
+                host: "".to_string(),
+                hostname: "".to_string(),
+                path: file_path,
+                port: 0,
+            };
+        }
+
         let host = it
             .by_ref()
             // Some schemes do not have double slash
@@ -245,6 +267,20 @@ impl Url {
     }
 
     fn load(self) -> Result<Response, Box<dyn std::error::Error>> {
+        if self.scheme == Scheme::File {
+            let mut file = File::open(self.path)?;
+            let mut body = String::new();
+
+            let _ = file.read_to_string(&mut body);
+
+            return Ok(Response {
+                version: "".to_string(),
+                status_code: 0,
+                explanation: "".to_string(),
+                headers: HashMap::new(),
+                body,
+            });
+        }
         let request = Request::new(&self, "GET");
 
         Response::parse(Response::execute(request))
@@ -304,5 +340,13 @@ mod tests {
         assert_eq!(result.hostname, "www.example.org");
         assert_eq!(result.host, "www.example.org:8080");
         assert_eq!(result.port, 8080);
+    }
+
+    #[test]
+    fn parse_file_url() {
+        let result = Url::new("file:///path/to/file/foo.txt");
+        println!("{}", result.host);
+
+        assert_eq!(result.path, "/path/to/file/foo.txt")
     }
 }
