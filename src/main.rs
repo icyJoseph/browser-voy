@@ -287,8 +287,8 @@ impl Url {
 
             return Ok(Response {
                 version: "".to_string(),
-                status_code: 0,
-                explanation: "".to_string(),
+                status_code: 200,
+                explanation: "OK".to_string(),
                 headers: HashMap::new(),
                 body,
             });
@@ -305,8 +305,8 @@ impl Url {
 
             return Ok(Response {
                 version: "".to_string(),
-                status_code: 0,
-                explanation: "".to_string(),
+                status_code: 200,
+                explanation: "OK".to_string(),
                 headers: HashMap::new(),
                 body: parts.collect(),
             });
