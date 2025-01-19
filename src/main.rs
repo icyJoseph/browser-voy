@@ -233,6 +233,18 @@ impl Url {
             };
         }
 
+        if scheme == Scheme::Data {
+            let data = it.collect::<String>();
+
+            return Url {
+                scheme,
+                host: "".to_string(),
+                hostname: "".to_string(),
+                path: data,
+                port: 0,
+            };
+        }
+
         let host = it
             .by_ref()
             // Some schemes do not have double slash
@@ -281,6 +293,25 @@ impl Url {
                 body,
             });
         }
+
+        if self.scheme == Scheme::Data {
+            let mut parts = self.path.split(',');
+
+            let Some(format) = parts.next() else {
+                panic!("missing format for data scheme")
+            };
+
+            assert!(format == "text/html", "Expected text/html format");
+
+            return Ok(Response {
+                version: "".to_string(),
+                status_code: 0,
+                explanation: "".to_string(),
+                headers: HashMap::new(),
+                body: parts.collect(),
+            });
+        }
+
         let request = Request::new(&self, "GET");
 
         Response::parse(Response::execute(request))
@@ -348,5 +379,17 @@ mod tests {
         println!("{}", result.host);
 
         assert_eq!(result.path, "/path/to/file/foo.txt")
+    }
+
+    #[test]
+    fn parse_data_url() {
+        let result = Url::new("data:text/html,Hello world!");
+        println!("{}", result.host);
+
+        assert_eq!(result.path, "text/html,Hello world!");
+
+        let response = result.load().unwrap();
+
+        assert_eq!(response.body, "Hello world!");
     }
 }
