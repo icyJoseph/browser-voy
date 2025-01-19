@@ -225,7 +225,7 @@ impl Url {
             let file_path = it.collect::<String>();
 
             return Url {
-                scheme: Scheme::File,
+                scheme,
                 host: "".to_string(),
                 hostname: "".to_string(),
                 path: file_path,
