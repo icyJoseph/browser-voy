@@ -7,6 +7,8 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::process::exit;
 
+mod entity;
+
 const PROTOCOL_DELIMITER: char = ':';
 const PORT_DELIMITER: char = ':';
 const PATH_DELIMITER: char = '/';
@@ -184,25 +186,46 @@ impl Response {
 
             let _ = socket.read_to_end(&mut chunks);
         }
-        let response = String::from_utf8_lossy(&chunks).into_owned();
 
-        response
+        String::from_utf8_lossy(&chunks).into_owned()
     }
 
-    fn print_body(self) {
+    fn show(self) -> String {
+        let mut result = String::new();
+
+        let entity_parser = entity::EntityParser::new();
+
         let mut in_tag = false;
 
-        for ch in self.body.chars() {
-            match ch {
-                '<' => in_tag = true,
-                '>' => in_tag = false,
-                _ if !in_tag => {
-                    print!("{ch}");
-                }
+        let mut it = self.body.chars().peekable();
 
+        loop {
+            if let Some(&next) = it.peek() {
+                if next == '&' {
+                    if let Some(entity) = entity_parser.consume(&mut it) {
+                        print!("{entity}");
+                        result.push_str(&entity);
+                    }
+
+                    continue;
+                }
+            }
+
+            match it.next() {
+                Some('<') => in_tag = true,
+                Some('>') => in_tag = false,
+                Some(ch) if !in_tag => {
+                    print!("{ch}");
+                    result.push(ch);
+                }
+                None => break,
                 _ => continue,
             }
         }
+
+        println!("\n");
+
+        result
     }
 }
 
@@ -329,7 +352,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let response = Url::new(url).load()?;
 
-    response.print_body();
+    response.show();
 
     Ok(())
 }
@@ -391,5 +414,15 @@ mod tests {
         let response = result.load().unwrap();
 
         assert_eq!(response.body, "Hello world!");
+    }
+
+    #[test]
+    fn parse_character_references() {
+        // html entities
+        let result = Url::new("data:text/html,&copy;&apos;&ndash;&nbsp;&lt;&gt;");
+
+        let response = result.load().unwrap();
+
+        assert_eq!(response.show(), "©'– <>");
     }
 }
