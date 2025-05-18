@@ -39,13 +39,9 @@ impl EntityParser {
     where
         I: Iterator<Item = char>,
     {
-        let mut acc = "".to_string();
+        let mut acc = String::new();
 
-        let mut candidates = self
-            .0
-            .iter()
-            .filter(|(name, _)| name.starts_with(&acc))
-            .collect::<Vec<&(String, Vec<u32>)>>();
+        let mut candidates = self.0.iter().collect::<Vec<_>>();
 
         while let Some(next) = input.peek() {
             let mut local = acc.clone();
@@ -55,7 +51,7 @@ impl EntityParser {
                 .iter()
                 .copied()
                 .filter(|(name, _)| name.starts_with(&local))
-                .collect::<Vec<&(String, Vec<u32>)>>();
+                .collect::<Vec<_>>();
 
             if next_candidates.is_empty() {
                 break;
