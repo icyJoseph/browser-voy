@@ -34,7 +34,7 @@ cargo run -- "data:text/html,&copy;&apos;&ndash;&nbsp;&lt;&gt;"
 - Load a site
 
 ```console
- cargo run -- https://browser.engineering/examples/example1-simple.html
+cargo run -- https://browser.engineering/examples/example1-simple.html
 
 
 Request:
