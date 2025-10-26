@@ -20,3 +20,43 @@ such as TLS upgrade, became harder than they should've been.
 - [x] HTTP 1.0
 - [x] TLS upgrade for HTTPS scheme
 - [x] Self made URL parser
+
+For example:
+
+- Load data
+
+```console
+cargo run -- "data:text/html,&copy;&apos;&ndash;&nbsp;&lt;&gt;"
+
+©'– <>
+```
+
+- Load a site
+
+```console
+ cargo run -- https://browser.engineering/examples/example1-simple.html
+
+
+Request:
+GET /examples/example1-simple.html HTTP/1.1
+Connection: close
+User-Agent: BrowserVoy
+Host: browser.engineering:443
+
+
+Response:
+
+
+    This is a simple
+    web page with some
+    text in it.
+
+```
+
+### Planned
+
+- [ ] view-source
+- [ ] caching
+- [ ] compression
+- [ ] redirects
+- [ ] keep-alive
