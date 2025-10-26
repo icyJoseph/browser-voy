@@ -1,6 +1,6 @@
 # Browser Voy
 
-A basic, yet complete, web browser.
+A basic web browser.
 
 ## Why
 
